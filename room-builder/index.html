@@ -1192,7 +1192,12 @@
         <div style="font-weight: 700; font-size: 14px; margin-bottom: 8px;">Enthaltene Artikel</div>
         <div style="display: flex; gap: 12px; overflow-x: auto; margin: 0 -24px 20px; padding: 0 24px; scrollbar-width: none;">
           <sc-for list="{{ outfitProducts }}" as="p" hint-placeholder-count="3">
-            <x-import component-from-global-scope="OTTODesignSystem_4763d6.ProductCard" brand="{{ p.brand }}" name="{{ p.name }}" price="{{ p.price }}" img="{{ p.img }}" width="{{ p.w }}" hint-size="140px,220px"></x-import>
+            <sc-if value="{{ p.hasImg }}" hint-placeholder-val="{{ false }}">
+              <x-import component-from-global-scope="OTTODesignSystem_4763d6.ProductCard" brand="{{ p.brand }}" name="{{ p.name }}" price="{{ p.price }}" img="{{ p.img }}" width="{{ p.w }}" hint-size="140px,220px"></x-import>
+            </sc-if>
+            <sc-if value="{{ p.noImg }}" hint-placeholder-val="{{ true }}">
+              <x-import component-from-global-scope="OTTODesignSystem_4763d6.ProductCard" brand="{{ p.brand }}" name="{{ p.name }}" price="{{ p.price }}" width="{{ p.w }}" hint-size="140px,220px"></x-import>
+            </sc-if>
           </sc-for>
         </div>
         <div style="display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid var(--oc-base-color-gray-100); padding: 12px 0; margin-bottom: 12px;">
@@ -1399,10 +1404,10 @@
           <div style="display: flex; flex-direction: column; gap: 12px;">
             <sc-for list="{{ outfitProducts }}" as="p" hint-placeholder-count="5">
               <div style="display: flex; align-items: center; gap: 12px;">
-                <div style="width: 56px; height: 72px; flex: none; background: var(--oc-base-color-gray-25); border-radius: 4px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
-                  <sc-if value="{{ p.img }}" hint-placeholder-val="{{ false }}">
-                    <img src="{{ p.img }}" style="width: 100%; height: 100%; object-fit: cover;">
-                  </sc-if>
+                <div style="width: 56px; height: 72px; flex: none; background: var(--oc-base-color-gray-25); border-radius: 4px; overflow: hidden; position: relative;">
+                  <div style="position: absolute; inset: 0;">
+                    <x-import component-from-global-scope="image-slot" from="../image-slot.js" id="{{ p.slotId }}" shape="rect" src="{{ p.img }}" placeholder="{{ p.name }}" hint-size="100%,100%"></x-import>
+                  </div>
                 </div>
                 <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;">
                   <div style="font-size: 12px; color: var(--oc-base-color-gray-400);">{{ p.brand }}</div>
@@ -1554,7 +1559,19 @@
 <script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
   state = { screen: "flowselect", history: [], gender: null, perm: null, showPicker: false, rollSelected: false, itemAdded: false, outfits: 1, currentOutfit: 1, modelReady: false, triedOn: [] };
-  goTo(s) { this.setState(st => ({ screen: s, history: [...st.history, st.screen] })); }
+  isTransient(s) {
+    return ["analyze", "finder-analyze", "generate", "room-generate", "finder-generate", "vto"].indexOf(s) >= 0;
+  }
+  clearTimers() {
+    [this._msgTimer, this._anaMsgTimer, this._fAnaTimer, this._roomMsgTimer, this._fGenTimer, this._vtoMsgTimer].forEach(t => clearInterval(t));
+    [this._genTimer, this._anaTimer, this._roomGenTimer, this._vtoTimer, this._fAnaGo, this._fGenGo, this._fRegenGo].forEach(t => clearTimeout(t));
+  }
+  goTo(s) {
+    this.setState(st => ({
+      screen: s,
+      history: this.isTransient(st.screen) ? st.history : [...st.history, st.screen],
+    }));
+  }
   componentDidMount() {
     // START_FLOW (set inline per subpage) opens one prototype directly and
     // skips the flow-select screen. FLOWS toggles which entries screen 0 shows.
@@ -1731,7 +1748,7 @@ class Component extends DCLogic {
       ],
     };
     const set = this.state.gender === "women" ? women : men;
-    return (set[this.state.currentOutfit || 1] || set[1]).map(p => ({ ...p, w: 140, img: p.img ? this.resolveImg(p.img) : p.img }));
+    return (set[this.state.currentOutfit || 1] || set[1]).map(p => { const img = p.img ? this.resolveImg(p.img) : ""; const slug = String(p.name).toLowerCase().replace(/[^a-z0-9]+/g, "-"); return { ...p, w: 140, img: img, hasImg: !!img, noImg: !img, slotId: "confirm-" + slug }; });
   }
   renderVals() {
     const s = this.state.screen;
@@ -1766,7 +1783,7 @@ class Component extends DCLogic {
         this.goTo("finder-analyze");
         this.setState({ finderAnalyzeMsg: 0 });
         this._fAnaTimer = setInterval(() => this.setState(st => ({ finderAnalyzeMsg: Math.min((st.finderAnalyzeMsg || 0) + 1, 2) })), 1200);
-        setTimeout(() => { clearInterval(this._fAnaTimer); this.goTo("finder-change"); }, 3600);
+        this._fAnaGo = setTimeout(() => { clearInterval(this._fAnaTimer); if (this.state.screen !== "finder-analyze") return; this.goTo("finder-change"); }, 3600);
       },
       isFinderRoom: s === "finder-room",
       isFinderAnalyze: s === "finder-analyze",
@@ -1866,8 +1883,9 @@ class Component extends DCLogic {
         this.goTo("finder-generate");
         this.setState({ finderGenMsg: 0 });
         this._fGenTimer = setInterval(() => this.setState(st => ({ finderGenMsg: Math.min((st.finderGenMsg || 0) + 1, 2) })), 1200);
-        setTimeout(() => {
+        this._fGenGo = setTimeout(() => {
           clearInterval(this._fGenTimer);
+          if (this.state.screen !== "finder-generate") return;
           this.setState({ finderVariants: 1, currentFinder: 1, finderMeasure: false });
           this.goTo("finder-result");
         }, 3600);
@@ -1892,8 +1910,9 @@ class Component extends DCLogic {
       regenerateFinder: () => {
         this.setState({ screen: "finder-generate", finderGenMsg: 0 });
         this._fGenTimer = setInterval(() => this.setState(st => ({ finderGenMsg: Math.min((st.finderGenMsg || 0) + 1, 2) })), 1200);
-        setTimeout(() => {
+        this._fRegenGo = setTimeout(() => {
           clearInterval(this._fGenTimer);
+          if (this.state.screen !== "finder-generate") return;
           this.setState({ screen: "finder-result", finderVariants: 2, currentFinder: 2, finderMeasure: false });
         }, 3600);
       },
@@ -1997,6 +2016,7 @@ class Component extends DCLogic {
         this._anaMsgTimer = setInterval(() => this.setState(st => ({ analyzeMsg: Math.min((st.analyzeMsg || 0) + 1, 2) })), 1200);
         this._anaTimer = setTimeout(() => {
           clearInterval(this._anaMsgTimer);
+          if (this.state.screen !== "analyze") return;
           this.goTo("keep-select");
         }, 3600);
       },
@@ -2096,6 +2116,7 @@ class Component extends DCLogic {
         this._roomMsgTimer = setInterval(() => this.setState(st => ({ roomGenMsg: Math.min((st.roomGenMsg || 0) + 1, 2) })), 1200);
         this._roomGenTimer = setTimeout(() => {
           clearInterval(this._roomMsgTimer);
+          if (this.state.screen !== "room-generate") return;
           this.setState({ roomGenerating: false, screen: "room-result", roomDesigns: 2, currentDesign: 2, showMeasure: false, roomDesel: [] });
         }, 3600);
       },
@@ -2112,6 +2133,7 @@ class Component extends DCLogic {
         this._roomMsgTimer = setInterval(() => this.setState(st => ({ roomGenMsg: Math.min((st.roomGenMsg || 0) + 1, 2) })), 1200);
         this._roomGenTimer = setTimeout(() => {
           clearInterval(this._roomMsgTimer);
+          if (this.state.screen !== "room-generate") return;
           this.setState({ roomGenerating: false });
           this.goTo("room-result");
         }, 3600);
@@ -2260,11 +2282,19 @@ class Component extends DCLogic {
       pickMen: () => { this.setState({ gender: "men" }); this.goTo("occasion"); },
       goLanding: () => this.goTo("landing"),
       goGender: () => this.goTo("gender"),
-      goBack: () => this.setState(st => {
-        const h = [...st.history];
-        const prev = h.pop() || "storefront";
-        return { screen: prev, history: h };
-      }),
+      goBack: () => {
+        this.clearTimers();
+        this.setState(st => {
+          const h = [...st.history];
+          let prev = h.pop() || "storefront";
+          while (this.isTransient(prev) && h.length) prev = h.pop();
+          if (this.isTransient(prev)) prev = "storefront";
+          return {
+            screen: prev, history: h,
+            generating: false, roomGenerating: false, vtoLoading: false,
+          };
+        });
+      },
     };
   }
 }
